@@ -16,7 +16,7 @@ My focus is on learning by building real-world automation workflows using low-co
 
 | # | Project | Business Problem | Status |
 |---|---|---|---|
-| 1 | Lead Recovery & Follow-up Automation | Missed leads and delayed follow-ups | In Progress |
+| 1 | Lead Recovery & Follow-up Automation | Missed leads and delayed follow-ups | Available |
 | 2 | Customer Support SLA Automation | Delayed and misrouted support tickets | Planned |
 | 3 | Invoice Reconciliation Automation | Duplicate invoices and financial discrepancies | Planned |
 | 4 | E-commerce Order Exception Monitor | Order and inventory inconsistencies | Planned |
