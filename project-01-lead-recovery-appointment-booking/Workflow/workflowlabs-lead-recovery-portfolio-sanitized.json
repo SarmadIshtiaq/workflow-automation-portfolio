@@ -1,0 +1,339 @@
+{
+  "name": "Lead Recovery & Appointment Booking Automation (Portfolio Draft)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "replace-with-your-own-lead-intake-path",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "cc7abf81-ff69-438d-a807-451b9271997e",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map((item) => {\n  const payload = item.json.body ?? item.json;\n  const data = payload.data ?? {};\n  const fields = Array.isArray(data.fields) ? data.fields : [];\n\n  const findField = (label) =>\n    fields.find((field) => field.label === label);\n\n  const readValue = (field) => {\n    if (!field) return \"\";\n\n    const value = field.value;\n\n    // Dropdown and checkbox answers may be arrays of option IDs.\n    if (Array.isArray(value)) {\n      const options = Array.isArray(field.options)\n        ? field.options\n        : [];\n\n      return value\n        .map((selectedId) => {\n          const option = options.find(\n            (option) => option.id === selectedId\n          );\n          return option?.text ?? selectedId;\n        })\n        .join(\", \");\n    }\n\n    return value ?? \"\";\n  };\n\n  const consentField = findField(\"Consent to contact\");\n\n  const consentDetailsField = fields.find((field) =>\n    field.label?.startsWith(\"Consent to contact (\")\n  );\n\n  const consentToContact =\n    consentDetailsField?.value === true ||\n    (\n      Array.isArray(consentField?.value) &&\n      consentField.value.length > 0\n    );\n\n  return {\n    json: {\n      eventId: payload.eventId ?? \"\",\n      submissionId: data.submissionId ?? data.responseId ?? \"\",\n\n      fullName: String(\n        readValue(findField(\"Full Name\"))\n      ).trim(),\n\n      email: String(\n        readValue(findField(\"Email\"))\n      ).trim().toLowerCase(),\n\n      company: String(\n        readValue(findField(\"Company Name\"))\n      ).trim(),\n\n      serviceNeeded: String(\n        readValue(\n          findField(\"Which service are you interested in?\")\n        )\n      ).trim(),\n\n      monthlyBudget: String(\n        readValue(\n          findField(\n            \"What is your estimated monthly budget (USD)?\"\n          )\n        )\n      ).trim(),\n\n      consentToContact,\n      receivedAt: payload.createdAt ?? \"\"\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "e5b217c4-dff4-46bc-9e46-81ec60c722ce",
+      "name": "Normalize Lead Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $json;\nconst errors = [];\n\nif (\n  typeof lead.fullName !== \"string\" ||\n  !lead.fullName.trim()\n) {\n  errors.push(\"missing_full_name\");\n}\n\nif (\n  typeof lead.email !== \"string\" ||\n  !lead.email.trim()\n) {\n  errors.push(\"missing_email\");\n} else if (\n  !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(lead.email)\n) {\n  errors.push(\"invalid_email\");\n}\n\nif (\n  typeof lead.serviceNeeded !== \"string\" ||\n  !lead.serviceNeeded.trim()\n) {\n  errors.push(\"missing_service\");\n}\n\nif (lead.consentToContact !== true) {\n  errors.push(\"consent_not_given\");\n}\n\nreturn {\n  json: {\n    ...lead,\n    isValid: errors.length === 0,\n    validationErrors: errors,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "d6ef3122-7faa-4576-8d29-ffa16508f2c0",
+      "name": "Validate Lead"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d5264491-827f-4ee1-aa9d-46705cb1f1e5",
+              "leftValue": "={{ $json.isValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        0
+      ],
+      "id": "f6793090-2e2e-4e3c-8a0e-023ad28a3200",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $json;\n\nreturn {\n  json: {\n    eventId: lead.eventId ?? \"\",\n    submissionId: lead.submissionId ?? \"\",\n    status: \"rejected\",\n    reason: \"validation_failed\",\n    validationErrors: Array.isArray(lead.validationErrors)\n      ? lead.validationErrors\n      : [\"unknown_validation_error\"],\n    receivedAt: lead.receivedAt ?? \"\",\n    handledAt: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        96
+      ],
+      "id": "e4e498f8-4049-496e-acba-c1b65b2826be",
+      "name": "Prepare Exception Record"
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "operation": "search",
+        "filterGroupsUi": {
+          "filterGroupsValues": [
+            {
+              "filtersUi": {
+                "filterValues": [
+                  {
+                    "propertyName": "email|string",
+                    "value": "={{ $json.email }}"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "ea993acf-0f39-49b4-bea4-566320ce1a0e",
+      "name": "Search contacts",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "29eef032-2c95-4805-9c95-554b5eb6ec45",
+              "leftValue": "={{ $json.id ?? $json.vid ?? \"\" }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        -96
+      ],
+      "id": "3b2b8c7e-cc09-48b7-b20d-d93f96b64f3d",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "email": "={{ $('Normalize Lead Data').item.json.email }}",
+        "additionalFields": {
+          "companyName": "={{ $('Normalize Lead Data').item.json.company }}",
+          "firstName": "={{ $('Normalize Lead Data').item.json.fullName.trim().split(/\\s+/)[0] }}",
+          "lastName": "={{ $('Normalize Lead Data').item.json.fullName.trim().split(/\\s+/).slice(1).join(' ') }}"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2.2,
+      "position": [
+        1376,
+        -112
+      ],
+      "id": "cad59a31-e6d1-4ce9-af52-5d8334689c4d",
+      "name": "Create or update a contact"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2ea7a9ab-2be1-4029-b96d-1a0115358d80",
+              "leftValue": "={{ $json.isNew }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1600,
+        -112
+      ],
+      "id": "d39dbdb6-2840-45ab-b255-4b3e972aec0f",
+      "name": "Is New Contact?"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "text": "={{ `🆕 New lead added to HubSpot\\nName: ${$('Normalize Lead Data').first().json.fullName}\\nEmail: ${$('Normalize Lead Data').first().json.email}\\nCompany: ${$('Normalize Lead Data').first().json.company || 'Not provided'}\\nService: ${$('Normalize Lead Data').first().json.serviceNeeded}\\nMonthly budget: ${$('Normalize Lead Data').first().json.monthlyBudget || 'Not provided'}\\n\\n📅 Book a discovery call:\nREPLACE_WITH_YOUR_PUBLIC_CALENDLY_BOOKING_LINK` }}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        1824,
+        -208
+      ],
+      "id": "6e123cc3-14d3-498a-a878-ff4a9b8c6737",
+      "name": "Send a message"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Search contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Exception Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search contacts": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Create or update a contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create or update a contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create or update a contact": {
+      "main": [
+        [
+          {
+            "node": "Is New Contact?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Contact?": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}
